@@ -12,7 +12,7 @@ export default {
     let tray = null
 
     globalEventEmitter.on('tray:destroy', () => {
-      tray?.destroy?.()
+      destroyTray()
     })
 
     globalEventEmitter.on('tray:create', () => {
@@ -28,6 +28,9 @@ export default {
     })
 
     registerWindowCloseHandler()
+
+    // 每次启动即驻留托盘图标，不隐藏主窗口
+    createTray()
 
     async function registerWindowCloseHandler() {
       const mainWindow = await resolveMainWindow(mainApp)
@@ -69,11 +72,7 @@ export default {
       const mainWindow = mainApp.getMainWindow()
 
       mainWindow?.show?.()
-
-      if (tray) {
-        tray.destroy()
-        tray = null
-      }
+      mainWindow?.focus?.()
 
       return true
     }
@@ -88,6 +87,26 @@ export default {
       mainWindow?.hide?.()
 
       return true
+    }
+
+    function toggleApp() {
+      const mainWindow = mainApp.getMainWindow()
+
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        showApp()
+        return
+      }
+
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+        mainWindow.focus()
+      }
+      else if (!mainWindow.isVisible()) {
+        showApp()
+      }
+      else {
+        hideApp()
+      }
     }
 
     async function quitApp() {
@@ -107,6 +126,7 @@ export default {
         return true
       }
       else if (response === 1) {
+        hideApp()
         createTray()
         return true
       }
@@ -114,15 +134,22 @@ export default {
       return false
     }
 
+    function destroyTray() {
+      tray?.destroy?.()
+      tray = null
+    }
+
     function createTray() {
-      hideApp()
+      if (tray) {
+        return
+      }
 
       tray = new Tray(trayPath)
 
       tray.setToolTip('escrcpy')
 
       tray.on('click', () => {
-        showApp()
+        toggleApp()
       })
 
       const contextMenu = Menu.buildFromTemplate([

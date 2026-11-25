@@ -173,7 +173,6 @@ export default {
 
     ipcMain.handle('show-main-window', () => {
       globalEventEmitter.emit('show:app')
-      globalEventEmitter.emit('tray:destroy')
 
       return true
     })
