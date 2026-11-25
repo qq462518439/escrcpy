@@ -6,10 +6,29 @@
 
 <script setup>
 import Layouts from './layouts/index.vue'
+import { openFloatControl } from '$/utils/device/index.js'
 
 const router = useRouter()
 
 const { locale, size } = useWindowStateSync()
+
+const deviceStore = useDeviceStore()
+const preferenceStore = usePreferenceStore()
+
+watch(() => deviceStore.list, (list) => {
+  const snapshot = (list || [])
+    .filter(device => ['device', 'emulator'].includes(device.status))
+    .map(({ id, remark, name, status, wifi, serialNo }) => ({
+      id,
+      remark,
+      name,
+      status,
+      wifi,
+      serialNo,
+    }))
+
+  window.$preload.ipcRenderer.send('tray:devices-sync', snapshot)
+}, { immediate: true, deep: true })
 
 window.$preload.ipcRenderer.on('quit-before', async () => {
   ElLoading.service({
@@ -26,6 +45,38 @@ window.$preload.ipcRenderer.on('execute-arguments-change', async (event, params)
 
 window.$preload.ipcRenderer.on('navigate-to-route', (event, route) => {
   router.push(route)
+})
+
+window.$preload.ipcRenderer.on('tray:mirror-device', async (_event, deviceId) => {
+  if (!deviceId) {
+    return
+  }
+
+  await deviceStore.getList().catch(() => {})
+
+  const row = deviceStore.list.find(item => item.id === deviceId)
+  const args = preferenceStore.scrcpyParameter(deviceId)
+
+  const mirroring = window.$preload.scrcpy.mirror(deviceId, {
+    title: deviceStore.getLabel(deviceId, 'mirror'),
+    args,
+    resolveOnReady: true,
+  })
+
+  try {
+    await mirroring
+
+    if (row) {
+      openFloatControl(toRaw(row))
+    }
+  }
+  catch (error) {
+    console.error('tray.mirror.error', error)
+
+    if (error?.message) {
+      ElMessage.warning(error.message)
+    }
+  }
 })
 
 onMounted(() => {

@@ -1,4 +1,4 @@
-import { app, dialog, Menu, Tray } from 'electron'
+import { app, dialog, ipcMain, Menu, Tray } from 'electron'
 import { trayPath } from '$electron/configs/index.js'
 import electronStore from '$electron/helpers/store/index.js'
 import { globalEventEmitter } from '$electron/helpers/emitter/index.js'
@@ -10,6 +10,9 @@ export default {
   name: 'service:tray',
   async apply(mainApp) {
     let tray = null
+    let trayDevices = []
+
+    const CONNECTED_STATUS = ['device', 'emulator']
 
     globalEventEmitter.on('tray:destroy', () => {
       destroyTray()
@@ -25,6 +28,10 @@ export default {
 
     globalEventEmitter.on('hide:app', () => {
       hideApp()
+    })
+
+    ipcMain.on('tray:devices-sync', (_event, list) => {
+      setTrayDevices(list)
     })
 
     registerWindowCloseHandler()
@@ -152,7 +159,58 @@ export default {
         toggleApp()
       })
 
-      const contextMenu = Menu.buildFromTemplate([
+      buildContextMenu()
+    }
+
+    function setTrayDevices(list) {
+      trayDevices = Array.isArray(list) ? list.filter(Boolean) : []
+      buildContextMenu()
+    }
+
+    function mirrorDevice(deviceId) {
+      if (!deviceId) {
+        return
+      }
+
+      const mainWindow = mainApp.getMainWindow()
+
+      mainWindow?.webContents?.send?.('tray:mirror-device', deviceId)
+    }
+
+    function deviceBaseName(device) {
+      return device.remark || device.name || device.serialNo || device.id || ''
+    }
+
+    function deviceLabel(device, duplicate) {
+      const base = deviceBaseName(device)
+
+      return duplicate && device.id ? `${base} [${device.id}]` : base
+    }
+
+    function buildContextMenu() {
+      if (!tray) {
+        return
+      }
+
+      const connected = trayDevices.filter(
+        device => device && device.id && CONNECTED_STATUS.includes(device.status),
+      )
+
+      const labelCount = new Map()
+
+      connected.forEach((device) => {
+        const base = deviceBaseName(device)
+        labelCount.set(base, (labelCount.get(base) || 0) + 1)
+      })
+
+      const deviceItems = connected.length
+        ? connected.map(device => ({
+            label: deviceLabel(device, (labelCount.get(deviceBaseName(device)) || 0) > 1),
+            click: () => mirrorDevice(device.id),
+          }))
+        : [{ label: t('device.list.empty'), enabled: false }]
+
+      const template = [
         {
           label: t('common.open'),
           click: () => {
@@ -166,15 +224,22 @@ export default {
             quitApp()
           },
         },
+        { type: 'separator' },
+        {
+          label: t('device.mirror.start'),
+          type: 'submenu',
+          submenu: deviceItems,
+        },
+        { type: 'separator' },
         {
           label: t('appClose.quit'),
           click: () => {
             quitApp()
           },
         },
-      ])
+      ]
 
-      tray.setContextMenu(contextMenu)
+      tray.setContextMenu(Menu.buildFromTemplate(template))
     }
   },
 }
